@@ -24,22 +24,45 @@ stages {
 
     stage('Test Container') {
         steps {
-            sh """
+            sh '''
+                # Remove old container if it exists
                 docker rm -f test-container || true
-
+    
+            ```
+                # Start container
                 docker run -d \
-                    --name test-container \
-                    -p 5001:5000 \
-                    ${IMAGE_NAME}:${BUILD_NUMBER}
+                --name test-container \
+                -p 5001:5000 \
+            ${IMAGE_NAME}:${BUILD_NUMBER}
 
-                sleep 10
+        # Wait for application startup
+        sleep 15
 
-                curl -f http://localhost:5001
+        echo "========================"
+        echo "Container Status"
+        echo "========================"
+        docker ps -a
 
-                docker rm -f test-container || true
-            """
-        }
-    }
+        echo "========================"
+        echo "Container Logs"
+        echo "========================"
+        docker logs test-container || true
+
+        echo "========================"
+        echo "Application Health Check"
+        echo "========================"
+
+        curl -f http://localhost:5001
+
+        echo "Application is healthy"
+
+        docker rm -f test-container || true
+    '''
+}
+```
+
+}
+
 
     stage('Docker Login') {
         steps {
