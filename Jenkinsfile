@@ -1,96 +1,105 @@
 pipeline {
-    agent any
+agent any
 
-    environment {
-        IMAGE_NAME = "armaankoyalkar/flask-hospital-app"
-        IMAGE_TAG = "${BUILD_NUMBER}"
+```
+environment {
+    IMAGE_NAME = "armaankoyalkar/flask-hospital-app"
+}
+
+stages {
+
+    stage('Checkout Code') {
+        steps {
+            checkout scm
+        }
     }
 
-    stages {
-
-        stage('Checkout Code') {
-            steps {
-                checkout scm
-            }
+    stage('Build Docker Image') {
+        steps {
+            sh '''
+            docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .
+            '''
         }
+    }
 
-        stage('Build Docker Image') {
-            steps {
+    stage('Test Container') {
+        steps {
+            sh '''
+            # Remove old test container if it exists
+            docker rm -f test-container || true
+
+            # Run container on a different host port
+            docker run -d \
+                --name test-container \
+                -p 5001:5000 \
+                ${IMAGE_NAME}:${BUILD_NUMBER}
+
+            # Wait for application startup
+            sleep 10
+
+            # Verify application is running
+            curl -f http://localhost:5001
+
+            # Cleanup test container
+            docker rm -f test-container
+            '''
+        }
+    }
+
+    stage('Docker Login') {
+        steps {
+            withCredentials([usernamePassword(
+                credentialsId: 'dockerhub-creds',
+                usernameVariable: 'DOCKER_USER',
+                passwordVariable: 'DOCKER_PASS'
+            )]) {
                 sh '''
-                docker build -t $IMAGE_NAME:$IMAGE_TAG .
+                echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
                 '''
             }
         }
+    }
 
-        stage('Test Container') {
-            steps {
-                sh '''
-                docker run -d --name test-container -p 5000:5000 $IMAGE_NAME:$IMAGE_TAG
-
-                sleep 10
-
-                docker ps
-
-                docker stop test-container
-                docker rm test-container
-                '''
-            }
+    stage('Push Docker Image') {
+        steps {
+            sh '''
+            docker push ${IMAGE_NAME}:${BUILD_NUMBER}
+            docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${IMAGE_NAME}:latest
+            docker push ${IMAGE_NAME}:latest
+            '''
         }
+    }
 
-        stage('Docker Login') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub-cred',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
-                    sh '''
-                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                    '''
-                }
-            }
-        }
+    stage('Deploy Application') {
+        steps {
+            sh '''
+            docker rm -f flask-hospital-app || true
 
-        stage('Push Docker Image') {
-            steps {
-                sh '''
-                docker push $IMAGE_NAME:$IMAGE_TAG
-
-                docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
-
-                docker push $IMAGE_NAME:latest
-                '''
-            }
-        }
-
-        stage('Deploy Application') {
-            steps {
-                sh '''
-                docker stop flask-app || true
-                docker rm flask-app || true
-
-                docker run -d \
-                --name flask-app \
+            docker run -d \
+                --name flask-hospital-app \
                 -p 5000:5000 \
-                $IMAGE_NAME:$IMAGE_TAG
-                '''
-            }
+                ${IMAGE_NAME}:${BUILD_NUMBER}
+            '''
         }
     }
+}
 
-    post {
-        success {
-            echo 'CI/CD Pipeline Completed Successfully'
-        }
-
-        failure {
-            echo 'Pipeline Failed'
-        }
-
-        always {
-            sh 'docker image prune -f || true'
-        }
+post {
+    always {
+        sh '''
+        docker rm -f test-container || true
+        docker image prune -f
+        '''
     }
+
+    success {
+        echo 'Pipeline Completed Successfully'
+    }
+
+    failure {
+        echo 'Pipeline Failed'
+    }
+}
+```
+
 }
