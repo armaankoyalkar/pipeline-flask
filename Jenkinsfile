@@ -3,6 +3,10 @@ pipeline {
 
     environment {
         IMAGE_NAME = "armaankoyalkar/flask-hospital-app"
+        CONTAINER_NAME = "flask-hospital-app"
+        TEST_CONTAINER = "test-container"
+        PORT = "5000"
+        TEST_PORT = "5001"
     }
 
     stages {
@@ -23,51 +27,37 @@ pipeline {
 
         stage('Test Container') {
             steps {
-                sh '''
-                    docker rm -f test-container || true
+                sh """
+                    docker rm -f ${TEST_CONTAINER} || true
 
                     docker run -d \
-                        --name test-container \
-                        -p 5001:5000 \
+                        --name ${TEST_CONTAINER} \
+                        -p ${TEST_PORT}:5000 \
                         ${IMAGE_NAME}:${BUILD_NUMBER}
 
-                    sleep 15
+                    sleep 10
 
-                    echo "========================"
-                    echo "Container Status"
-                    echo "========================"
-                    docker ps -a
+                    echo "=== Logs ==="
+                    docker logs ${TEST_CONTAINER} || true
 
-                    echo "========================"
-                    echo "Container Logs"
-                    echo "========================"
-                    docker logs test-container || true
+                    echo "=== Health Check ==="
+                    curl -f http://localhost:${TEST_PORT} || exit 1
 
-                    echo "========================"
-                    echo "Health Check"
-                    echo "========================"
-
-                    curl -f http://localhost:5001
-
-                    echo "Application is healthy"
-
-                    docker rm -f test-container || true
-                '''
+                    docker rm -f ${TEST_CONTAINER} || true
+                """
             }
         }
 
         stage('Docker Login') {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
-                    sh '''
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh """
                         echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                    '''
+                    """
                 }
             }
         }
@@ -76,6 +66,7 @@ pipeline {
             steps {
                 sh """
                     docker push ${IMAGE_NAME}:${BUILD_NUMBER}
+
                     docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${IMAGE_NAME}:latest
                     docker push ${IMAGE_NAME}:latest
                 """
@@ -85,11 +76,16 @@ pipeline {
         stage('Deploy Application') {
             steps {
                 sh """
-                    docker rm -f flask-hospital-app || true
+                    echo "Stopping old container if exists..."
+                    docker rm -f ${CONTAINER_NAME} || true
 
+                    echo "Freeing port ${PORT} if occupied..."
+                    docker ps -q --filter "publish=${PORT}" | xargs -r docker rm -f || true
+
+                    echo "Starting new container..."
                     docker run -d \
-                        --name flask-hospital-app \
-                        -p 5000:5000 \
+                        --name ${CONTAINER_NAME} \
+                        -p ${PORT}:5000 \
                         ${IMAGE_NAME}:${BUILD_NUMBER}
                 """
             }
@@ -98,18 +94,18 @@ pipeline {
 
     post {
         always {
-            sh '''
-                docker rm -f test-container || true
+            sh """
+                docker rm -f ${TEST_CONTAINER} || true
                 docker image prune -f || true
-            '''
+            """
         }
 
         success {
-            echo 'Pipeline Completed Successfully'
+            echo "Pipeline Completed Successfully"
         }
 
         failure {
-            echo 'Pipeline Failed'
+            echo "Pipeline Failed"
         }
     }
 }
