@@ -1,10 +1,9 @@
 pipeline {
 agent any
 
-```
+
 environment {
     IMAGE_NAME = "armaankoyalkar/flask-hospital-app"
-    DOCKERHUB_CREDENTIALS = "dockerhub-creds"
 }
 
 stages {
@@ -29,15 +28,15 @@ stages {
                 docker rm -f test-container || true
 
                 docker run -d \
-                  --name test-container \
-                  -p 5001:5000 \
-                  ${IMAGE_NAME}:${BUILD_NUMBER}
+                    --name test-container \
+                    -p 5001:5000 \
+                    ${IMAGE_NAME}:${BUILD_NUMBER}
 
                 sleep 10
 
                 curl -f http://localhost:5001
 
-                docker rm -f test-container
+                docker rm -f test-container || true
             """
         }
     }
@@ -46,7 +45,7 @@ stages {
         steps {
             withCredentials([
                 usernamePassword(
-                    credentialsId: "${DOCKERHUB_CREDENTIALS}",
+                    credentialsId: 'dockerhub-creds',
                     usernameVariable: 'DOCKER_USER',
                     passwordVariable: 'DOCKER_PASS'
                 )
@@ -76,9 +75,9 @@ stages {
                 docker rm -f flask-hospital-app || true
 
                 docker run -d \
-                  --name flask-hospital-app \
-                  -p 5000:5000 \
-                  ${IMAGE_NAME}:${BUILD_NUMBER}
+                    --name flask-hospital-app \
+                    -p 5000:5000 \
+                    ${IMAGE_NAME}:${BUILD_NUMBER}
             """
         }
     }
@@ -88,7 +87,7 @@ post {
     always {
         sh '''
             docker rm -f test-container || true
-            docker image prune -f
+            docker image prune -f || true
         '''
     }
 
@@ -100,6 +99,6 @@ post {
         echo 'Pipeline Failed'
     }
 }
-```
+
 
 }
